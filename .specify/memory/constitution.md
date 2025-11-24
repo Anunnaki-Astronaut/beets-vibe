@@ -1,50 +1,48 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+- Version: 1.0.0
+- Added sections: Core Principles, Additional Constraints, Development Workflow, Governance
+- Templates requiring updates: None
+- Follow-up TODOs: None
+-->
+# beets-vibe Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Safe File Operations
+All destructive file operations (delete, move, overwrite) MUST be confirmed by the user. The system will never delete user data without explicit consent. Rationale: Protecting the user's music library is the highest priority.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Clear API/UI Separation
+The backend (Quart) and frontend (React) MUST remain decoupled. The frontend will only interact with the backend through documented RESTful API and WebSocket endpoints. This ensures modularity and allows for independent development and testing.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Docker First
+The primary method for distribution and development is Docker. All features and dependencies MUST be compatible with the existing Docker and Docker Compose setup to ensure a consistent environment for all users, including those on Unraid.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Comprehensive Logging
+All backend modules MUST use the centralized logging system (`beets_flask/logger.py`). Logging should be structured and provide clear, actionable information for debugging. Frontend errors should be caught by error boundaries and reported.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Non-Destructive by Default
+The application's default behavior for any operation MUST be non-destructive. Destructive actions are only performed after explicit user confirmation. This includes file operations, metadata changes, and library modifications.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Extensibility Through Plugins
+The architecture MUST remain compatible with the Beets plugin ecosystem. Changes to the core application should not break existing plugin functionality without a clear migration path.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### VII. Test-Driven Development
+All new features and bug fixes MUST be accompanied by appropriate tests. This includes unit tests for backend logic, integration tests for API endpoints, and component tests for the frontend.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Additional Constraints
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- **Technology Stack:** The core technologies (Quart, React, SQLAlchemy, Redis) are foundational. Any proposal to change them requires a formal architectural review.
+- **Dependencies:** New dependencies should be added judiciously and must be compatible with the existing stack and licenses.
+
+## Development Workflow
+
+- **Code Quality:** All code must adhere to the standards enforced by `ruff` and `mypy` for the backend, and `eslint` and `prettier` for the frontend.
+- **Branching:** Feature development should happen in separate branches. The `main` branch should always be stable.
+- **Pull Requests:** All changes must be submitted via pull requests and reviewed by at least one other contributor.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution is the source of truth for the project's development principles. Any proposed changes to this constitution must be submitted as a pull request and approved by the project maintainers.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2025-11-24 | **Last Amended**: 2025-11-24
