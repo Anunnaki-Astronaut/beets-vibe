@@ -88,6 +88,8 @@ New endpoints will be created under `/api/config/`. The existing config routes i
 
 ### Out-of-Scope Plugins
 - Any plugin not listed above. The framework should be extensible to add more later.
+- **Xtractor (beets-xtractor)**: Advanced audio analysis plugin that uses Essentia to compute acoustic features
+  such as tempo, key, and mood. This will be considered in a later phase once the basic metadata settings UI is stable.
 
 ## 7. Risks and Open Questions
 
