@@ -23,7 +23,7 @@ This document breaks down the implementation of the "Metadata Source & Credentia
     - The `POST` endpoint returns a 400 error for invalid requests (e.g., missing plugin name).
     - The `POST` endpoint returns a 500 error if the `ConfigService` throws an exception.
 
-### Task 1.3: Add Backend Tests
+### Task 1.3: Add Backend Tests [X]
 - **File**: `backend/tests/integration/test_routes/test_config.py` (and new unit test files)
 - **Description**: Write unit tests for the `ConfigService` and integration tests for the new API endpoints.
 - **Acceptance Criteria**:
