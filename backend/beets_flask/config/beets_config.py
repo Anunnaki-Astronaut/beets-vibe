@@ -27,6 +27,7 @@ print(config["gui"]["tags"].get(default="default_value"))
 
 import os
 import sys
+from pathlib import Path
 from typing import cast
 
 from beets import IncludeLazyConfig as BeetsConfig
@@ -37,8 +38,22 @@ from confuse import YamlSource
 from beets_flask.logger import log
 
 
-def _copy_file(src, dest):
-    with open(src) as src_file, open(dest, "w") as dest_file:
+def _copy_file(src: str | Path, dest: str | Path) -> None:
+    """Copy a text file using UTF-8 explicitly.
+
+    Using an explicit encoding avoids Windows default cp1252 issues
+    when the source file contains UTF-8 characters, and ensures the
+    destination directory exists.
+    """
+    src_path = Path(src)
+    dest_path = Path(dest)
+
+    # Make sure the destination directory exists (handles Windows ~/.config case)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with src_path.open(encoding="utf-8") as src_file, dest_path.open(
+        "w", encoding="utf-8"
+    ) as dest_file:
         dest_file.write(src_file.read())
 
 

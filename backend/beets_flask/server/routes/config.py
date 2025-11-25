@@ -5,9 +5,10 @@ fetch settings once from the backend on first page-load.
 """
 
 from beets import __version__ as beets_version
-from quart import Blueprint, jsonify
+from quart import Blueprint, jsonify, request, current_app
 
 from beets_flask.config import get_config
+from beets_flask.config_service import ConfigService  # NEW
 
 config_bp = Blueprint("config", __name__, url_prefix="/config")
 
@@ -95,6 +96,47 @@ async def refresh():
 
     refresh_config()
     return jsonify({"status": "ok"})
+
+
+# NEW: metadata plugins API
+
+
+@config_bp.route("/metadata_plugins", methods=["GET"])
+async def get_metadata_plugins():
+    """Return enabled status and redacted settings for metadata plugins."""
+    service = ConfigService()
+    plugins_config = service.get_metadata_plugins_config()
+    return jsonify(plugins_config)
+
+
+@config_bp.route("/metadata_plugins", methods=["POST"])
+async def update_metadata_plugin():
+    """Update configuration for a specific metadata plugin."""
+    data = await request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body required"}), 400
+
+    plugin_name = data.get("plugin")
+    enabled = data.get("enabled")
+    settings = data.get("settings", {})
+
+    if not plugin_name:
+        return jsonify({"error": "Plugin name is required"}), 400
+
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "Field 'enabled' must be a boolean"}), 400
+
+    try:
+        service = ConfigService()
+        service.update_metadata_plugin_config(plugin_name, settings, enabled)
+        return jsonify({"status": "ok"})
+    except ValueError as exc:
+        # For unsupported plugin names and similar validation errors
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        current_app.logger.exception("Failed to update metadata plugin config")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 def _serializable(input):
