@@ -1,7 +1,8 @@
 import { useMemo } from "react";
-import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
 
 import { useLocalStorage } from "@/components/common/hooks/useLocalStorage";
+import { queryClient } from "./common";
 
 import { APIError } from "./common";
 
@@ -242,4 +243,58 @@ export const useInboxFolderConfig = (full_path: string) => {
             auto_threshold: fc[1].auto_threshold ?? config.match.strong_rec_thresh,
         };
     }, [config, full_path]);
+};
+
+/* ---------------------------- Metadata plugins ---------------------------- */
+
+export interface MetadataPluginConfig {
+    enabled: boolean;
+    settings: Record<string, string>;
+}
+
+export interface MetadataPluginsConfig {
+    discogs: MetadataPluginConfig;
+    spotify: MetadataPluginConfig;
+    musicbrainz: MetadataPluginConfig;
+    beatport: MetadataPluginConfig;
+    lyrics: MetadataPluginConfig;
+    autobpm: MetadataPluginConfig;
+    keyfinder: MetadataPluginConfig;
+    replaygain: MetadataPluginConfig;
+}
+
+export const metadataPluginsQueryOptions = () =>
+    queryOptions({
+        queryKey: ["metadata-plugins"],
+        queryFn: async () => {
+            const response = await fetch(`/config/metadata_plugins`);
+            return (await response.json()) as MetadataPluginsConfig;
+        },
+    });
+
+export const useMetadataPlugins = () => {
+    const { data } = useSuspenseQuery(metadataPluginsQueryOptions());
+    return data;
+};
+
+export const updateMetadataPluginMutation = () => {
+    return useMutation({
+        mutationFn: async (params: {
+            plugin: string;
+            enabled: boolean;
+            settings: Record<string, string>;
+        }) => {
+            const response = await fetch(`/config/metadata_plugins`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(params),
+            });
+            return await response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["metadata-plugins"] });
+        },
+    });
 };

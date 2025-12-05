@@ -27,6 +27,12 @@ async def test_get_metadata_plugins(client, monkeypatch):
     fake_plugins = {
         "discogs": {"enabled": True, "settings": {"user_agent": "ua"}},
         "spotify": {"enabled": False, "settings": {}},
+        "musicbrainz": {"enabled": True, "settings": {}},
+        "beatport": {"enabled": False, "settings": {}},
+        "lyrics": {"enabled": False, "settings": {}},
+        "autobpm": {"enabled": False, "settings": {}},
+        "keyfinder": {"enabled": False, "settings": {}},
+        "replaygain": {"enabled": False, "settings": {}},
     }
 
     class DummyService:

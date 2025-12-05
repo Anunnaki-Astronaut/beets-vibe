@@ -36,7 +36,21 @@ RUN --mount=type=cache,target=/var/cache/apk \
     tmux \
     shadow \
     git \
-    ffmpeg
+    ffmpeg \
+    # Audio analysis dependencies for DJ metadata (BPM, Key detection)
+    fftw-dev \
+    libsndfile-dev \
+    aubio \
+    py3-aubio \
+    # Build dependencies for keyfinder-cli (if building from source)
+    cmake \
+    g++ \
+    make
+
+# NOTE: keyfinder-cli is not available in Alpine repos and must be installed manually.
+# Users can install it via custom startup scripts or build from source:
+# https://github.com/mixxxdj/libKeyFinder
+# The beets-keyfinder plugin requires the `keyfinder-cli` binary in PATH.
 
 
 # Install backend dependencies

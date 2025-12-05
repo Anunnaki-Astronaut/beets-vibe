@@ -1,101 +1,285 @@
-# Feature Specification: Metadata Source & Credentials Settings UI
+# Metadata Source & Credentials Settings UI
 
-**Feature Branch**: `feature/metadata-settings-ui`
-**Created**: 2025-11-24
-**Status**: Draft
-**Input**: User description: "Create a specification for a new "Metadata Source & Credentials Settings UI" feature for the beets-vibe project (my fork of beets-flask)."
+## Overview
 
-## 1. Problem
+The Metadata Settings UI provides a web-based interface for configuring Beets metadata plugins and their associated credentials. This feature allows users to enable/disable plugins and manage their configuration settings through an intuitive web interface, replacing the need to directly edit YAML configuration files.
 
-Currently, configuring metadata sources (like MusicBrainz, Discogs, Spotify) and their corresponding API credentials in `beets-vibe` requires manual editing of YAML configuration files (`config.yaml`). This process is error-prone, cumbersome for non-technical users, and lacks a user-friendly interface. There is no central place in the UI to manage which plugins are active or to securely store and update API keys.
+## Purpose
 
-## 2. Goals
+- **User Experience**: Provide a user-friendly interface for managing metadata plugin configurations
+- **Security**: Safely handle sensitive credentials by redacting them in the UI while allowing updates
+- **Configuration Management**: Enable real-time plugin configuration changes without manual file editing
+- **Plugin Support**: Support commonly used metadata plugins with their specific configuration needs
 
-- Provide a web UI for users to view, enable/disable, and configure metadata sources and plugins.
-- Allow users to securely enter, update, and clear credentials (API keys, tokens) for these sources.
-- Persist these settings safely into the existing `beets` and `beets-vibe` configuration files.
-- Ensure the feature is compliant with the `beets-vibe` constitution, especially regarding safe file operations and clear API/UI separation.
+## Feature Requirements
 
-## 3. Non-Goals
+### Core Functionality
 
-- This feature will not manage the installation or removal of beets plugins themselves.
-- It will not provide a full-fledged configuration editor for all of `beets` or `beets-vibe`. The scope is limited to metadata plugins and their credentials.
-- It will not support every possible beets plugin in the first iteration.
+1. **Plugin Management Interface**
+   - Display all supported metadata plugins with their current status
+   - Allow users to enable/disable individual plugins
+   - Show plugin-specific configuration settings
+   - Provide clear indication of which plugins are currently active
 
-## 4. User Stories
+2. **Credential Management**
+   - Display configuration fields for each plugin
+   - Redact sensitive fields (tokens, secrets, API keys) for security
+   - Allow users to update credentials through secure form inputs
+   - Preserve existing non-sensitive settings
 
-### User Story 1 - View and Manage Metadata Plugins (Priority: P1)
-As a user, I want to see a list of available metadata plugins so that I can enable or disable them through the web UI.
+3. **Real-time Configuration**
+   - Apply configuration changes immediately without restart
+   - Provide feedback on successful updates
+   - Handle validation errors gracefully
+   - Create automatic backups before changes
 
-**Why this priority**: This is the foundational feature that allows users to control their metadata sources without touching config files.
-**Independent Test**: The UI correctly displays the status (enabled/disabled) of the in-scope plugins, and toggling a plugin correctly updates the `beets/config.yaml` file.
-**Acceptance Scenarios**:
-1.  **Given** the `discogs` plugin is enabled in `config.yaml`, **When** I navigate to the settings page, **Then** the Discogs plugin toggle should be "on".
-2.  **Given** the `lyrics` plugin is disabled, **When** I enable it via the UI and save, **Then** the `plugins` list in `beets/config.yaml` should be updated to include `lyrics`.
+### In-Scope Plugins
 
-### User Story 2 - Manage Discogs Credentials (Priority: P1)
-As a user, I want to enter, update, and clear my Discogs API token so that the Discogs plugin can authenticate and fetch metadata.
+The following metadata plugins are fully supported by the backend implementation:
 
-**Why this priority**: Discogs is a primary metadata source for many users and often requires authentication for full access.
-**Independent Test**: Entering a token in the UI and saving results in the `discogs` section of `beets/config.yaml` being correctly updated with the new token.
-**Acceptance Scenarios**:
-1.  **Given** I have no Discogs token set, **When** I enter a valid token and save, **Then** the `discogs.token` key in `config.yaml` is populated.
-2.  **Given** an existing token, **When** I clear the token field and save, **Then** the `discogs.token` key is removed from `config.yaml`.
+1. **discogs** - Discogs music database integration
+2. **spotify** - Spotify metadata and audio features
+3. **musicbrainz** - MusicBrainz database and acoustic analysis
+4. **beatport** - Beatport electronic music database
+5. **lyrics** - Lyrics fetching and display
+6. **autobpm** - Automatic BPM detection
+7. **keyfinder** - Musical key detection
+8. **replaygain** - ReplayGain audio loudness analysis
 
-### User Story 3 - Manage Spotify Credentials (Priority: P2)
-As a user, I want to enter and update my Spotify API credentials (client ID and client secret) so that beets plugins that use Spotify can function correctly.
-
-**Why this priority**: Spotify is another key source for metadata and playlist integration.
-**Independent Test**: The UI allows for entering both a client ID and a client secret for Spotify, and saving them updates the `spotify` section in `config.yaml`.
-**Acceptance Scenarios**:
-1.  **Given** no Spotify credentials are set, **When** I enter a client ID and secret and save, **Then** `spotify.client_id` and `spotify.client_secret` are correctly written to `config.yaml`.
-
-## 5. UX Overview
-
-- A new "Settings" page will be added to the main navigation.
-- Inside "Settings", there will be a "Metadata Sources" tab.
-- This tab will display a list of supported plugins (e.g., Discogs, Spotify, MusicBrainz).
-- Each plugin will have:
-    - An enable/disable toggle switch.
-    - A section for credential management (e.g., text fields for API keys/tokens).
-    - Input fields for secrets will use a password-type input to obscure the value.
-    - A "Save" button will persist the changes for that section.
-- The UI will show a confirmation message on successful save and display validation errors (e.g., "Invalid token format") if the backend reports an issue.
-
-## 6. Backend Changes
+## Backend Implementation
 
 ### API Endpoints
-New endpoints will be created under `/api/config/`. The existing config routes in `backend/beets_flask/server/routes/config.py` will be expanded.
 
-- `GET /api/config/metadata_plugins`:
-  - **Action**: Reads the current `beets/config.yaml` to determine which plugins are enabled and retrieves their settings.
-  - **Response**: A JSON object detailing the status and configuration of each supported plugin. Secrets will be redacted (e.g., `"token": "********"`).
-- `POST /api/config/metadata_plugins`:
-  - **Action**: Receives a JSON payload with updated settings for one or more plugins. It will validate the input and then safely update the `beets/config.yaml` and/or `beets-flask/config.yaml` files.
-  - **Request Body**: `{ "plugin": "discogs", "enabled": true, "settings": { "token": "new_token_value" } }`
-  - **Security**: The backend will handle writing to the YAML files. It will use a library that preserves comments and structure to avoid breaking the file. Secrets will never be logged. This adheres to the **Safe File Operations** and **Non-Destructive by Default** principles.
-  - **Logging**: A log entry will be created upon successful configuration change, e.g., `INFO: User updated 'discogs' plugin settings.`. This aligns with the **Comprehensive Logging** principle.
+#### GET `/api_v1/config/metadata_plugins`
+**Purpose**: Retrieve current metadata plugin configurations
 
-### In-Scope Plugins (First Iteration)
-- **MusicBrainz**: (Enabled by default, no credentials needed)
-- **Discogs**: Enable/disable, `token` credential.
-- **Beatport**: Enable/disable.
-- **Spotify**: Enable/disable, `client_id` and `client_secret` credentials.
-- **Lyrics**: Enable/disable.
-- **BPM (autobpm)**: Enable/disable.
-- **Key (keyfinder)**: Enable/disable.
-- **ReplayGain**: Enable/disable.
+**Response Format**:
+```json
+{
+  "discogs": {
+    "enabled": true,
+    "settings": {
+      "token": "********",
+      "secret": "********",
+      "user_agent": "Custom User Agent"
+    }
+  },
+  "spotify": {
+    "enabled": false,
+    "settings": {
+      "api_key": "********"
+    }
+  },
+  "musicbrainz": {
+    "enabled": true,
+    "settings": {}
+  },
+  "beatport": {
+    "enabled": false,
+    "settings": {}
+  },
+  "lyrics": {
+    "enabled": false,
+    "settings": {}
+  },
+  "autobpm": {
+    "enabled": false,
+    "settings": {
+      "max_tempo": "200"
+    }
+  },
+  "keyfinder": {
+    "enabled": false,
+    "settings": {}
+  },
+  "replaygain": {
+    "enabled": false,
+    "settings": {}
+  }
+}
+```
 
-### Out-of-Scope Plugins
-- Any plugin not listed above. The framework should be extensible to add more later.
-- **Xtractor (beets-xtractor)**: Advanced audio analysis plugin that uses Essentia to compute acoustic features
-  such as tempo, key, and mood. This will be considered in a later phase once the basic metadata settings UI is stable.
+#### POST `/api_v1/config/metadata_plugins`
+**Purpose**: Update metadata plugin configuration
 
-## 7. Risks and Open Questions
+**Request Format**:
+```json
+{
+  "plugin": "discogs",
+  "enabled": true,
+  "settings": {
+    "token": "new_token_value",
+    "secret": "new_secret_value",
+    "user_agent": "Custom User Agent"
+  }
+}
+```
 
-- **Risk**: Concurrently editing the config file from the UI and manually could lead to conflicts.
-  - **Mitigation**: The backend will read the config file just before writing to minimize the race condition window. A file-locking mechanism could be considered if this proves to be a significant issue.
-- **Risk**: Storing secrets in plain text in YAML is standard for Beets but may be a security concern for some users.
-  - **Mitigation**: The documentation will clearly state how secrets are stored. The UI will obscure secret inputs. For Unraid/Docker users, environment variables will continue to take precedence, which is a more secure practice. This aligns with the **Docker First** principle.
-- **Open Question**: How should the UI handle plugins that have many configuration options beyond just credentials?
-  - **Answer for v1**: We will only expose the most common and essential settings (enable/disable, credentials). Advanced configuration will still require manual file editing.
+**Success Response**:
+```json
+{
+  "status": "ok"
+}
+```
+
+**Error Responses**:
+- `400 Bad Request`: Missing plugin name or invalid enabled type
+- `500 Internal Server Error`: Configuration update failed
+
+### Configuration Service
+
+The `ConfigService` class handles all metadata plugin configuration operations:
+
+#### Key Features
+- **Plugin Validation**: Ensures only supported plugins can be configured
+- **Security**: Automatic redaction of sensitive fields (fields containing "token", "secret", or "key")
+- **Backup Management**: Automatic backup creation before any configuration changes
+- **YAML Preservation**: Uses `ruamel.yaml` to maintain YAML structure and comments
+
+#### Supported Operations
+- `get_metadata_plugins_config()`: Fetch current plugin configurations
+- `update_metadata_plugin_config(plugin_name, settings, enabled)`: Update plugin settings
+
+### YAML Handling
+
+The backend uses **`ruamel.yaml`** library for YAML file operations, which provides:
+- **Comment Preservation**: Maintains existing comments in configuration files
+- **Structure Preservation**: Preserves YAML formatting and structure
+- **Safe Updates**: Atomic write operations with automatic backup creation
+
+This ensures that manual configuration changes and comments are preserved when the UI updates plugin settings.
+
+## Security Considerations
+
+### Sensitive Data Handling
+- **Display Security**: Sensitive fields are redacted in API responses (shown as `********`)
+- **Input Validation**: Server-side validation prevents injection attacks
+- **Automatic Backups**: Configuration changes are automatically backed up before application
+- **Error Handling**: Generic error messages prevent information disclosure
+
+### Field Redaction Rules
+The following field patterns are automatically redacted in responses:
+- Fields containing "token" (e.g., `access_token`, `client_token`)
+- Fields containing "secret" (e.g., `client_secret`, `api_secret`)
+- Fields containing "key" (e.g., `api_key`, `secret_key`)
+
+**Note**: These fields are still accepted as input for updates but are displayed as redacted in responses.
+
+## User Interface Requirements
+
+### Layout and Design
+- **Plugin Grid**: Display plugins in a responsive grid layout
+- **Status Indicators**: Clear visual indicators for enabled/disabled status
+- **Settings Forms**: Expandable sections for each plugin's configuration
+- **Action Buttons**: Enable/disable toggles and save/update buttons
+
+### User Experience
+- **Immediate Feedback**: Show success/error states after configuration changes
+- **Form Validation**: Client-side validation for required fields and data types
+- **Progressive Disclosure**: Expandable plugin settings to reduce interface clutter
+- **Mobile Responsive**: Ensure usability on mobile devices and tablets
+
+### Error Handling
+- **Validation Errors**: Clear error messages for invalid inputs
+- **Network Errors**: Graceful handling of connection issues
+- **Server Errors**: User-friendly error messages with retry options
+- **Partial Updates**: Handle cases where some plugins update successfully while others fail
+
+## Technical Implementation Details
+
+### State Management
+- **Plugin State**: Track enabled/disabled status for each plugin
+- **Settings State**: Manage plugin-specific configuration values
+- **Loading States**: Show loading indicators during API calls
+- **Dirty State**: Track unsaved changes to prevent data loss
+
+### API Integration
+- **Fetch Configuration**: Load current plugin settings on component mount
+- **Update Configuration**: Send changes to backend with proper error handling
+- **Optimistic Updates**: Update UI immediately while waiting for server response
+- **Rollback Capability**: Revert changes if server update fails
+
+### Form Handling
+- **Dynamic Forms**: Generate forms based on plugin-specific configuration schemas
+- **Type Safety**: Ensure proper data types for different configuration fields
+- **Conditional Fields**: Show/hide fields based on plugin selection or other values
+- **Default Values**: Provide sensible defaults for plugin configuration options
+
+## Testing Considerations
+
+### Backend Testing
+- **Unit Tests**: Comprehensive test coverage for ConfigService methods
+- **Integration Tests**: API endpoint testing with various plugin configurations
+- **Security Tests**: Verify sensitive field redaction and input validation
+- **Backup Tests**: Ensure backup creation and restoration functionality
+
+### Frontend Testing
+- **Component Tests**: Test individual UI components and their interactions
+- **Integration Tests**: End-to-end testing of configuration workflows
+- **Error Handling Tests**: Verify proper error states and user feedback
+- **Responsive Tests**: Ensure functionality across different screen sizes
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] All 8 supported plugins can be enabled/disabled through the UI
+- [ ] Plugin-specific settings can be viewed and modified
+- [ ] Sensitive fields are properly redacted in the display
+- [ ] Configuration changes are immediately applied
+- [ ] Automatic backups are created before any changes
+
+### User Experience Requirements
+- [ ] Interface is intuitive and requires no training
+- [ ] All operations complete within 3 seconds
+- [ ] Error states are clearly communicated
+- [ ] Interface is fully responsive across device sizes
+- [ ] Loading states provide appropriate feedback
+
+### Security Requirements
+- [ ] No sensitive data is exposed in client-side storage
+- [ ] All API endpoints require proper authentication
+- [ ] Input validation prevents injection attacks
+- [ ] Configuration changes are auditable through backup files
+
+## Dependencies
+
+### Backend Dependencies
+- `ruamel.yaml`: YAML file handling with comment preservation
+- `beets_flask.config`: Configuration management system
+- `quart`: Web framework for API endpoints
+
+### Frontend Dependencies
+- React components for user interface
+- Form handling libraries for plugin configuration
+- HTTP client for API communication
+- State management for plugin configurations
+
+## Implementation Notes
+
+### Plugin Configuration Patterns
+Each plugin may have different configuration requirements:
+- **Authentication**: Some plugins require API keys or OAuth tokens
+- **Behavioral Settings**: Options for how plugins interact with metadata sources
+- **Performance Tuning**: Settings for timeout values, retry attempts, etc.
+- **User Preferences**: Display options and formatting preferences
+
+### Future Extensibility
+The plugin system is designed to be easily extensible:
+- New plugins can be added to `SUPPORTED_METADATA_PLUGINS` list
+- Configuration schemas can be defined dynamically
+- Plugin-specific UI components can be registered
+- Backend service methods can be extended for new plugin types
+
+## Deployment Considerations
+
+### Configuration Migration
+- **Existing Configs**: Ensure compatibility with existing Beets configuration files
+- **Backup Migration**: Provide tools for migrating from manual to UI-based configuration
+- **Rollback Strategy**: Enable easy rollback to previous configurations if needed
+
+### Performance Impact
+- **Startup Time**: Plugin configuration loading should not significantly impact startup
+- **Memory Usage**: Efficient storage and caching of plugin configurations
+- **API Response Times**: Ensure plugin configuration endpoints respond quickly
+
+This specification provides the foundation for implementing a comprehensive metadata settings UI that enhances the user experience while maintaining security and compatibility with the existing Beets ecosystem.

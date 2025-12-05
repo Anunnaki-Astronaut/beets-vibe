@@ -15,6 +15,7 @@ import { Route as SessiondraftIndexRouteImport } from './routes/sessiondraft/ind
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as DebugIndexRouteImport } from './routes/debug/index'
 import { Route as FrontpageIndexRouteImport } from './routes/_frontpage/index'
+import { Route as SettingsMetadataRouteImport } from './routes/settings/metadata'
 import { Route as LibrarySearchRouteImport } from './routes/library/search'
 import { Route as DebugSortable_multiRouteImport } from './routes/debug/sortable_multi'
 import { Route as DebugSortableRouteImport } from './routes/debug/sortable'
@@ -69,6 +70,11 @@ const DebugIndexRoute = DebugIndexRouteImport.update({
 const FrontpageIndexRoute = FrontpageIndexRouteImport.update({
   id: '/_frontpage/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsMetadataRoute = SettingsMetadataRouteImport.update({
+  id: '/settings/metadata',
+  path: '/settings/metadata',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibrarySearchRoute = LibrarySearchRouteImport.update({
@@ -216,6 +222,7 @@ export interface FileRoutesByFullPath {
   '/debug/sortable': typeof DebugSortableRoute
   '/debug/sortable_multi': typeof DebugSortable_multiRoute
   '/library/search': typeof LibrarySearchRoute
+  '/settings/metadata': typeof SettingsMetadataRoute
   '/': typeof FrontpageIndexRoute
   '/debug': typeof DebugIndexRoute
   '/inbox': typeof InboxIndexRoute
@@ -249,6 +256,7 @@ export interface FileRoutesByTo {
   '/debug/sortable': typeof DebugSortableRoute
   '/debug/sortable_multi': typeof DebugSortable_multiRoute
   '/library/search': typeof LibrarySearchRoute
+  '/settings/metadata': typeof SettingsMetadataRoute
   '/': typeof FrontpageIndexRoute
   '/debug': typeof DebugIndexRoute
   '/inbox': typeof InboxIndexRoute
@@ -280,6 +288,7 @@ export interface FileRoutesById {
   '/debug/sortable': typeof DebugSortableRoute
   '/debug/sortable_multi': typeof DebugSortable_multiRoute
   '/library/search': typeof LibrarySearchRoute
+  '/settings/metadata': typeof SettingsMetadataRoute
   '/_frontpage/': typeof FrontpageIndexRoute
   '/debug/': typeof DebugIndexRoute
   '/inbox/': typeof InboxIndexRoute
@@ -315,6 +324,7 @@ export interface FileRouteTypes {
     | '/debug/sortable'
     | '/debug/sortable_multi'
     | '/library/search'
+    | '/settings/metadata'
     | '/'
     | '/debug'
     | '/inbox'
@@ -348,6 +358,7 @@ export interface FileRouteTypes {
     | '/debug/sortable'
     | '/debug/sortable_multi'
     | '/library/search'
+    | '/settings/metadata'
     | '/'
     | '/debug'
     | '/inbox'
@@ -378,6 +389,7 @@ export interface FileRouteTypes {
     | '/debug/sortable'
     | '/debug/sortable_multi'
     | '/library/search'
+    | '/settings/metadata'
     | '/_frontpage/'
     | '/debug/'
     | '/inbox/'
@@ -412,6 +424,7 @@ export interface RootRouteChildren {
   DebugSortableRoute: typeof DebugSortableRoute
   DebugSortable_multiRoute: typeof DebugSortable_multiRoute
   LibrarySearchRoute: typeof LibrarySearchRoute
+  SettingsMetadataRoute: typeof SettingsMetadataRoute
   FrontpageIndexRoute: typeof FrontpageIndexRoute
   DebugIndexRoute: typeof DebugIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
@@ -472,6 +485,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof FrontpageIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/metadata': {
+      id: '/settings/metadata'
+      path: '/settings/metadata'
+      fullPath: '/settings/metadata'
+      preLoaderRoute: typeof SettingsMetadataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library/search': {
@@ -717,6 +737,7 @@ const rootRouteChildren: RootRouteChildren = {
   DebugSortableRoute: DebugSortableRoute,
   DebugSortable_multiRoute: DebugSortable_multiRoute,
   LibrarySearchRoute: LibrarySearchRoute,
+  SettingsMetadataRoute: SettingsMetadataRoute,
   FrontpageIndexRoute: FrontpageIndexRoute,
   DebugIndexRoute: DebugIndexRoute,
   InboxIndexRoute: InboxIndexRoute,

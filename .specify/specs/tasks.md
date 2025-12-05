@@ -1,84 +1,119 @@
-# Task Breakdown: Metadata Source & Credentials Settings UI
+# Task Breakdown - Rich DJ Metadata
 
-This document breaks down the implementation of the "Metadata Source & Credentials Settings UI" feature into smaller, actionable tasks.
+## Phase 1: Backend Core
 
-## Phase 1: Backend
+### Task 1.0: Update Docker Environment
+**Description:**
+Update the Dockerfile to include necessary system dependencies for analysis tools.
+**Steps:**
+1.  Modify `docker/Dockerfile`.
+2.  Install `keyfinder-cli` (or `libkeyfinder`) and dependencies for `autobpm` (e.g., `libessentia` or `bpm-tools`).
+**Acceptance Criteria:**
+*   Container builds successfully.
+*   `keyfinder-cli` and BPM tools are available in the container path.
 
-### Task 1.1: Refine Configuration Service
-- **File**: `backend/beets_flask/config_service.py`
-- **Description**: Refine the `ConfigService` to ensure it robustly handles YAML parsing, updating, and writing. The current implementation is a good start, but needs to be hardened.
-- **Acceptance Criteria**:
-    - The service correctly reads the `beets/config.yaml` file.
-    - The `get_metadata_plugins_config` method returns the correct enabled status and redacted settings for all supported plugins.
-    - The `update_metadata_plugin_config` method correctly modifies the `plugins` list and plugin-specific settings.
-    - A backup of the config file is created before writing.
-    - **[SECRET]**: This task handles reading and writing files that may contain secrets.
+### Task 1.1: Define Job for Attribute Analysis
+**Description:**
+Implement the background job that will run the analysis plugins (`autobpm`, `keyfinder`) on selected items.
+**Steps:**
+1.  Modify `backend/beets_flask/invoker/enqueue.py` to add `ANALYZE_ATTRIBUTES` to `EnqueueKind`.
+2.  Implement `run_analyze_attributes` in `backend/beets_flask/invoker/job.py` (or `enqueue.py` if that's where jobs are defined - check existing patterns).
+    *   Input: List of Item IDs.
+    *   Logic:
+        *   Retrieve items from Beets library.
+        *   Check if `autobpm` and `keyfinder` plugins are enabled/configured.
+        *   Execute analysis commands/plugins on the item's file path.
+        *   Update `bpm` and `initial_key` fields in the Beets `Item`.
+        *   Store changes in the database (`item.store()`).
+        *   Emit a WebSocket event to notify frontend of updates.
+**Acceptance Criteria:**
+*   Job can be enqueued and executed via RQ.
+*   Job successfully updates `bpm` and `initial_key` fields for a given item ID.
+*   Job handles missing plugins gracefully (logs warning, skips analysis).
 
-### Task 1.2: Refine API Endpoints
-- **File**: `backend/beets_flask/server/routes/config.py`
-- **Description**: Ensure the `GET` and `POST` endpoints in the `config_bp` blueprint correctly use the `ConfigService` and handle all success and error cases.
-- **Acceptance Criteria**:
-    - `GET /api/config/metadata_plugins` returns a 200 status with the correct JSON payload.
-    - `POST /api/config/metadata_plugins` returns a 200 status on success and updates the config.
-    - The `POST` endpoint returns a 400 error for invalid requests (e.g., missing plugin name).
-    - The `POST` endpoint returns a 500 error if the `ConfigService` throws an exception.
+### Task 1.2: Implement Analysis API Endpoint
+**Description:**
+Create a new API endpoint to trigger the analysis job.
+**Steps:**
+1.  Create or update `backend/beets_flask/server/routes/library/metadata.py` (or similar).
+2.  Add `POST /api/library/analyze` endpoint.
+    *   Request Body: `{ "item_ids": [int] }`
+    *   Response: `{ "job_id": str, "status": "queued" }`
+3.  Endpoint should validate input and enqueue the `ANALYZE_ATTRIBUTES` job.
+**Acceptance Criteria:**
+*   Endpoint accepts a list of item IDs.
+*   Endpoint returns 202 Accepted with job ID.
+*   Invalid input returns 400 Bad Request.
 
-### Task 1.3: Add Backend Tests [X]
-- **File**: `backend/tests/integration/test_routes/test_config.py` (and new unit test files)
-- **Description**: Write unit tests for the `ConfigService` and integration tests for the new API endpoints.
-- **Acceptance Criteria**:
-    - Unit tests for `ConfigService` cover successful updates, backup creation, and edge cases.
-    - Integration tests for the `GET` endpoint verify the response structure and redaction of secrets.
-    - Integration tests for the `POST` endpoint verify that the config file is correctly modified.
+### Task 1.3: Backend Tests
+**Description:**
+Add unit and integration tests for the new job and API endpoint.
+**Steps:**
+1.  Create `backend/tests/unit/test_invoker/test_analyze.py` (or similar).
+    *   Test `run_analyze_attributes` logic with mocked plugins.
+2.  Create `backend/tests/integration/test_routes/test_analyze.py`.
+    *   Test `POST /api/library/analyze` endpoint.
+**Acceptance Criteria:**
+*   Tests pass with high coverage.
+*   Mocking is used to avoid running actual heavy analysis tools during tests.
 
-## Phase 2: Frontend
+## Phase 2: Frontend Integration
 
-### Task 2.1: Create Settings Page Route
-- **File**: `frontend/src/routeTree.gen.ts`, `frontend/src/routes/settings.tsx`
-- **Description**: Add a new top-level navigation item for "Settings" and create the route for the "Metadata Sources" page.
-- **Acceptance Criteria**:
-    - A "Settings" link appears in the main navigation.
-    - Navigating to `/settings/metadata` renders a placeholder page.
+### Task 2.1: Update API Client
+**Description:**
+Update the frontend API client to support the new endpoint.
+**Steps:**
+1.  Modify `frontend/src/api/library.ts`.
+2.  Add `analyzeItems(itemIds: number[])` function calling `POST /api/library/analyze`.
+**Acceptance Criteria:**
+*   Function is typed correctly.
+*   Function successfully calls the backend.
 
-### Task 2.2: Build the Plugin Settings UI
-- **Files**: `frontend/src/routes/settings.tsx`, `frontend/src/components/settings/PluginSettingsCard.tsx`
-- **Description**: Create the main UI for the settings page, which will display a list of `PluginSettingsCard` components.
-- **Acceptance Criteria**:
-    - The page fetches data from the `GET /api/config/metadata_plugins` endpoint using TanStack Query.
-    - A `PluginSettingsCard` is rendered for each plugin returned by the API.
-    - Each card displays the plugin name, an enable/disable toggle, and input fields for its settings.
-    - **[SECRET]**: A `CredentialsField` component should be used for any field containing a secret, which will render a password input.
+### Task 2.2: Update Library Browser
+**Description:**
+Display BPM and Key information in the main library list.
+**Steps:**
+1.  Modify `frontend/src/components/library/ItemListRow.tsx` (or equivalent).
+2.  Add columns for "BPM" and "Key".
+3.  Ensure these fields are included in the data fetched from the API (update `pythonTypes.ts` if necessary, though Beets `Item` should already have them).
+**Acceptance Criteria:**
+*   BPM and Key columns are visible in the library browser.
+*   Data is displayed correctly for items that have it.
+*   Columns handle missing data gracefully (empty or "-").
 
-### Task 2.3: Implement Update Logic
-- **File**: `frontend/src/components/settings/PluginSettingsCard.tsx`
-- **Description**: Implement the logic to save changes for a single plugin.
-- **Acceptance Criteria**:
-    - Clicking "Save" on a card triggers a `useMutation` hook from TanStack Query.
-    - The mutation sends a `POST` request to `/api/config/metadata_plugins` with the updated data for that plugin.
-    - The UI displays loading indicators while the mutation is in progress.
-    - Success and error messages are displayed to the user.
+### Task 2.3: Update Item Details Page
+**Description:**
+Show and allow editing of BPM/Key on the item details page.
+**Steps:**
+1.  Modify `frontend/src/routes/library/item/$itemId.tsx` (or equivalent).
+2.  Add BPM and Key to the metadata display grid.
+3.  Add an "Analyze" button that calls `analyzeItems` for the current item.
+    *   **Important:** The UI must warn the user that this action will modify the files on disk (write tags).
+4.  Ensure the existing "Edit" functionality includes these fields.
+**Acceptance Criteria:**
+*   BPM and Key are displayed on the details page.
+*   "Analyze" button triggers the backend job and shows a loading state/notification.
+*   UI warns about file modification before analysis.
+*   Users can manually edit BPM and Key values using the existing edit modal.
 
-### Task 2.4: Add Frontend Tests
-- **File**: New test files in the `frontend` directory.
-- **Description**: Write component tests for the new settings page and its components.
-- **Acceptance Criteria**:
-    - Tests for `PluginSettingsCard` verify that it correctly displays data and that user interactions (toggling, typing) update its state.
-    - Tests for the main settings page verify that it correctly renders a list of cards based on mock API data.
+## Phase 3: Testing & Polish
 
-## Phase 3: Documentation and Finalization
+### Task 3.1: End-to-End Testing
+**Description:**
+Verify the entire flow from UI to backend and back.
+**Steps:**
+1.  Manually test the "Analyze" button on an item.
+2.  Verify the job runs (check logs/Redis).
+3.  Verify the UI updates with the new values (via WebSocket or refresh).
+4.  Verify manual editing works.
+**Acceptance Criteria:**
+*   Full feature works as expected in a dev environment.
 
-### Task 3.1: Update User Documentation
-- **File**: `beets_flask_project_summary.md` and/or `docs/configuration.md`
-- **Description**: Update the project documentation to explain how to use the new UI for managing metadata plugins and credentials.
-- **Acceptance Criteria**:
-    - The documentation includes screenshots of the new settings page.
-    - It clearly explains which plugins are supported and how to enter credentials.
-    - It mentions that for more advanced configuration, manual editing of `config.yaml` is still required.
-
-### Task 3.2: Manual End-to-End Testing
-- **Description**: Perform a full manual test of the feature in a local development environment.
-- **Acceptance Criteria**:
-    - Enable and disable a plugin, and verify the change in `config.yaml`.
-    - Add, update, and clear credentials for Discogs and Spotify, and verify the changes.
-    - Ensure that comments and other parts of the `config.yaml` file are not disturbed.
-    - Verify that redacted secrets are not visible in the browser's network inspector.
+### Task 3.2: Documentation
+**Description:**
+Update documentation to reflect the new feature.
+**Steps:**
+1.  Update `docs/` to mention the new "Rich DJ Metadata" capabilities.
+2.  Add instructions on how to enable/configure `autobpm` and `keyfinder` plugins.
+**Acceptance Criteria:**
+*   Documentation is accurate and helpful.

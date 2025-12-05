@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
-import yaml
+import ruamel.yaml
 
 from beets_flask.config import get_config
 
@@ -10,6 +10,11 @@ SUPPORTED_METADATA_PLUGINS = [
     "discogs",
     "spotify",
     "musicbrainz",
+    "beatport",
+    "lyrics",
+    "autobpm",
+    "keyfinder",
+    "replaygain",
 ]
 
 
@@ -80,11 +85,13 @@ class ConfigService:
 
     def _read_config_yaml(self) -> Dict[str, Any]:
         """Reads the raw YAML config file."""
+        yaml = ruamel.yaml.YAML()
         with open(self.beets_config_path, "r") as f:
-            return yaml.safe_load(f)
+            return yaml.load(f)
 
     def _write_config_yaml(self, data: Dict[str, Any]):
         """Writes data to the YAML config file."""
         self._backup_config()
+        yaml = ruamel.yaml.YAML()
         with open(self.beets_config_path, "w") as f:
-            yaml.dump(data, f, sort_keys=False)
+            yaml.dump(data, f)

@@ -2,18 +2,19 @@
 
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import patch, mock_open, MagicMock
 
 import pytest
+from ruamel.yaml import YAML
 
-from beets_flask.config_service import ConfigService
+from beets_flask.config_service import ConfigService, SUPPORTED_METADATA_PLUGINS
 
 
 @pytest.fixture
 def mock_config_data():
     """Base beets config used by the ConfigService tests."""
     return {
-        "plugins": ["discogs", "musicbrainz"],
+        "plugins": ["discogs", "musicbrainz", "keyfinder"],
         "discogs": {
             "token": "test_token",
             "secret": "test_secret",
@@ -23,6 +24,8 @@ def mock_config_data():
             "api_key": "test_api_key",
         },
         "musicbrainz": {},
+        "autobpm": {"max_tempo": "200"},
+        "keyfinder": {},
     }
 
 
@@ -73,6 +76,20 @@ def test_get_metadata_plugins_config(config_service, mock_config_data):
     assert plugins_config["musicbrainz"]["enabled"] is True
     assert plugins_config["musicbrainz"]["settings"] == {}
 
+    # Autobpm: not enabled, but settings are present
+    assert plugins_config["autobpm"]["enabled"] is False
+    assert plugins_config["autobpm"]["settings"] == {"max_tempo": "200"}
+
+    # Keyfinder: enabled, no settings
+    assert plugins_config["keyfinder"]["enabled"] is True
+    assert plugins_config["keyfinder"]["settings"] == {}
+
+    # Beatport and others: not in config, so disabled and no settings
+    assert plugins_config["beatport"]["enabled"] is False
+    assert plugins_config["beatport"]["settings"] == {}
+    assert plugins_config["lyrics"]["enabled"] is False
+    assert plugins_config["replaygain"]["enabled"] is False
+
 
 def test_update_metadata_plugin_config_enable(config_service):
     service, written = config_service
@@ -111,6 +128,7 @@ def test_backup_created_on_update(mock_config_data):
     service._read_config_yaml = lambda: deepcopy(mock_config_data)
 
     with patch("beets_flask.config_service.shutil.copy") as m_copy, \
+         patch("ruamel.yaml.YAML.dump") as m_dump, \
          patch("builtins.open", mock_open()):
         service.update_metadata_plugin_config(
             "spotify", {"api_key": "new_key"}, enabled=True
@@ -118,3 +136,4 @@ def test_backup_created_on_update(mock_config_data):
 
         backup_path = service.beets_config_path.with_suffix(".yaml.bak")
         m_copy.assert_called_once_with(service.beets_config_path, backup_path)
+        m_dump.assert_called_once()

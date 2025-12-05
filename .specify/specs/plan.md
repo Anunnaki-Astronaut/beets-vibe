@@ -1,113 +1,71 @@
-# Implementation Plan: Metadata Source & Credentials Settings UI
+# Implementation Plan - Rich DJ Metadata
 
-This document outlines the technical plan for implementing the "Metadata Source & Credentials Settings UI" feature.
+## 1. Architecture & Data Flow
 
-## 1. Architecture
+### Backend
+*   **New Job:** `run_analyze_attributes` in `backend/beets_flask/invoker/enqueue.py`.
+    *   **Input:** List of Item IDs.
+    *   **Logic:**
+        1.  Open Beets Library.
+        2.  Fetch items by ID.
+        3.  Load `autobpm` and `keyfinder` plugins (if enabled).
+        4.  Run analysis on each item.
+        5.  Store results (`bpm`, `initial_key`) in Beets DB.
+        6.  **Write tags to file** (standard Beets behavior).
+        7.  Emit WebSocket update for item changes.
+*   **New Endpoint:** `POST /api/library/analyze`
+    *   **Body:** `{ "item_ids": [1, 2, 3] }`
+    *   **Action:** Enqueues `run_analyze_attributes` job.
+*   **Database:** No schema changes needed. `bpm` and `initial_key` are standard Beets Item fields.
 
-The implementation will follow the existing architectural patterns of the beets-vibe project, with a clear separation between the frontend and backend.
+### Frontend
+*   **Library Browser:**
+    *   Update `ItemListRow` to display BPM and Key.
+    *   (Optional) Add sort options for BPM and Key if not already present.
+*   **Item Details:**
+    *   Add BPM and Key to the details grid.
+    *   Add "Analyze" button to trigger the new endpoint.
+    *   Reuse existing "Edit" modal to allow manual updates to BPM/Key via `PATCH /api/library/item/{id}`.
 
-- **Backend (Quart)**: New API endpoints will be added to handle reading and writing configuration. A new service layer will be introduced to abstract the logic of handling YAML configuration files, ensuring that file operations are safe and maintain the integrity of the user's configuration.
-- **Frontend (React)**: A new route and corresponding components will be created for the settings UI. TanStack Query will be used for managing server state, including fetching and updating configurations.
+### Data Flow
+1.  **User** clicks "Analyze" on Item Details page.
+2.  **Frontend** calls `POST /api/library/analyze` with item ID.
+3.  **Backend** enqueues `run_analyze_attributes` job to Redis `import_queue`.
+4.  **Worker** picks up job, runs Beets plugins (`autobpm`, `keyfinder`).
+5.  **Plugins** update `Item` fields in SQLite/MySQL.
+6.  **Worker** emits `item_updated` event (or generic library update).
+7.  **Frontend** receives update via WebSocket (or invalidates query) and refreshes view.
 
-## 2. Data Flow
+## 2. Implementation Steps
 
-1.  **Fetch Settings**:
-    - The frontend settings page will trigger a `GET /api/config/metadata_plugins` request on load.
-    - The backend will read the `beets/config.yaml` file, parse it, and construct a JSON response containing the status of supported plugins and their configurations. Secrets will be redacted.
-2.  **Update Settings**:
-    - The user modifies settings in the UI (e.g., toggles a plugin, updates an API key).
-    - On save, the frontend sends a `POST /api/config/metadata_plugins` request with a payload containing the updated settings for a specific plugin.
-    - The backend receives the request, validates the payload, reads the latest version of the config file, updates it in memory using a YAML library that preserves comments and formatting, and writes the changes back to the file.
-    - A success or error response is returned to the frontend.
+### Backend
+1.  [ ] **Define Job:** Add `ANALYZE_ATTRIBUTES` to `EnqueueKind` in `backend/beets_flask/invoker/enqueue.py`.
+2.  [ ] **Implement Job Logic:** Create `run_analyze_attributes` function in `backend/beets_flask/invoker/enqueue.py`.
+    *   Needs to handle plugin loading/execution.
+3.  [ ] **Create Endpoint:** Add `POST /api/library/analyze` in `backend/beets_flask/server/routes/library/metadata.py` (create file if needed, or use `items.py`).
+4.  [ ] **Update API Types:** Ensure `ItemResponse` includes `bpm` and `initial_key` (already verified, but double check).
 
-## 3. API Design
+### Frontend
+1.  [ ] **Update Types:** Ensure `ItemResponse` in `frontend/src/pythonTypes.ts` matches backend.
+2.  [ ] **Library Browser:** Modify `ItemListRow` in `frontend/src/components/common/browser/items.tsx` to show BPM/Key columns.
+3.  [ ] **Item Details:**
+    *   Update `frontend/src/routes/library/(resources)/item.$itemId.index.tsx` to show BPM/Key.
+    *   Add "Analyze" button.
+    *   Update existing "Edit" dialog to include BPM/Key fields for manual corrections.
+4.  [ ] **API Client:** Add `analyzeItems` function to `frontend/src/api/library.ts`.
 
-The API will be an extension of the existing config routes located in `backend/beets_flask/server/routes/config.py`.
+## 3. Testing Strategy
 
-### `GET /api/config/metadata_plugins`
+*   **Unit Tests:**
+    *   Test `run_analyze_attributes` with mocked Beets library and plugins.
+    *   Test `POST /api/library/analyze` endpoint.
+*   **Integration Tests:**
+    *   Test the full flow: API call -> Job Enqueue -> Job Execution -> DB Update.
+    *   Mock the actual binary execution of `keyfinder`/`autobpm` to avoid dependency issues in test environment.
 
--   **Method**: `GET`
--   **Description**: Retrieves the configuration for all supported metadata plugins.
--   **Response Body**:
-    ```json
-    {
-      "plugins": [
-        {
-          "name": "discogs",
-          "enabled": true,
-          "settings": {
-            "token": "********"
-          }
-        },
-        {
-          "name": "spotify",
-          "enabled": false,
-          "settings": {
-            "client_id": "********",
-            "client_secret": "********"
-          }
-        }
-      ]
-    }
-    ```
+## 4. Risks & Mitigations
 
-### `POST /api/config/metadata_plugins`
-
--   **Method**: `POST`
--   **Description**: Updates the configuration for a single plugin.
--   **Request Body**:
-    ```json
-    {
-      "plugin": "discogs",
-      "enabled": true,
-      "settings": {
-        "token": "new_secret_token"
-      }
-    }
-    ```
--   **Success Response**: `200 OK` with a confirmation message.
--   **Error Response**: `400 Bad Request` for invalid input, `500 Internal Server Error` for file I/O problems.
-
-## 4. Frontend Design
-
--   **Routing**: A new route will be added at `/settings/metadata`.
--   **Component Structure**:
-    -   `routes/settings/metadata.tsx`: The main page component.
-    -   `components/settings/PluginSettingsCard.tsx`: A reusable component to display and manage settings for a single plugin.
-    -   `components/settings/CredentialsField.tsx`: A component for secret inputs that obscures the value.
--   **State Management**:
-    -   `useQuery` from TanStack Query will fetch the initial settings.
-    -   `useMutation` will be used to handle the update operation, providing loading and error states to the UI.
--   **UI**: Material-UI components will be used to build the form, including toggles for enabling/disabling plugins and text fields for credentials.
-
-## 5. Config Persistence Strategy
-
--   **Library**: The `ruamel.yaml` library will be used in the backend for its ability to read and write YAML files while preserving comments, formatting, and structure. This is critical to avoid corrupting the user's `config.yaml`.
--   **Safety**:
-    1.  When updating, the backend will first read the most current content of the `config.yaml` file.
-    2.  It will then update the configuration in memory.
-    3.  A backup of the original file will be created (e.g., `config.yaml.bak`) before writing the new content.
-    4.  The new configuration is written to the original file.
-    5.  If the write is successful, the backup can be removed.
--   **Secrets**:
-    -   Secrets will be handled exclusively on the backend. They will never be logged.
-    -   The `GET` API will return redacted values for secret fields.
-    -   The frontend will use password-type inputs for secret fields.
-
-## 6. Testing Strategy
-
--   **Backend**:
-    -   Unit tests for the new configuration service layer, mocking file I/O to test the YAML parsing and updating logic.
-    -   Integration tests for the API endpoints, using a temporary config file to verify that `GET` and `POST` requests work as expected.
--   **Frontend**:
-    -   Component tests for the new settings components using Vitest and React Testing Library.
-    -   Mock API responses will be used to test the behavior of the UI in different states (loading, success, error).
-
-## 7. Rollout and Migration
-
--   **No Database Migration**: This feature does not introduce any database schema changes.
--   **Configuration**: Existing user configurations will be read correctly. The feature will only modify sections of the config file that it is responsible for.
--   **Documentation**: The official documentation will be updated to guide users on how to use the new settings UI.
--   **Phased Rollout**: The initial implementation will only support the plugins listed in the spec. The architecture will be designed to make it easy to add support for more plugins in the future.
-
-This plan will be broken down into a series of actionable steps in a TODO list.
+*   **Plugin Availability:** `keyfinder` requires external binaries.
+    *   *Mitigation:* Check if binary exists before running. If not, log warning/error and skip.
+*   **Performance:** Analysis is slow.
+    *   *Mitigation:* Run in background worker (already planned).

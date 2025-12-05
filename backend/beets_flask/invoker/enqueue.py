@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+import shutil
+import subprocess
+from contextlib import suppress
 from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import (
@@ -51,6 +55,7 @@ from beets_flask.server.websocket.status import (
 from .job import ExtraJobMeta, _set_job_meta
 
 if TYPE_CHECKING:
+    from beets.library import Library
     from rq.job import Job
     from rq.queue import Queue
 
@@ -126,6 +131,9 @@ class EnqueueKind(Enum):
 
     _AUTO_IMPORT = "_auto_import"
     _AUTO_PREVIEW = "_auto_preview"
+
+    # DJ metadata analysis (BPM, Key detection)
+    ANALYZE_ATTRIBUTES = "analyze_attributes"
 
     @classmethod
     def from_str(cls, kind: str) -> EnqueueKind:
@@ -658,3 +666,305 @@ def delete_items(task_ids: list[str], delete_files: bool = True):
     lib = _open_library(get_config())
     for task_id in task_ids:
         delete_from_beets(task_id, delete_files=delete_files, lib=lib)
+
+
+# -------------------- DJ Metadata Analysis Functions ------------------- #
+
+
+def enqueue_analyze_attributes(
+    item_ids: list[int],
+    analyze_bpm: bool = True,
+    analyze_key: bool = True,
+) -> Job:
+    """Enqueue a job to analyze BPM and Key attributes for library items.
+
+    Parameters
+    ----------
+    item_ids : list[int]
+        List of beets item IDs to analyze.
+    analyze_bpm : bool
+        Whether to analyze BPM (default: True).
+    analyze_key : bool
+        Whether to analyze musical key (default: True).
+
+    Returns
+    -------
+    Job
+        The enqueued RQ job.
+    """
+    job = _enqueue(
+        import_queue,  # Use import queue to avoid blocking previews
+        run_analyze_attributes,
+        item_ids,
+        analyze_bpm,
+        analyze_key,
+    )
+    return job
+
+
+@exception_as_return_value
+async def run_analyze_attributes(
+    item_ids: list[int],
+    analyze_bpm: bool = True,
+    analyze_key: bool = True,
+    *,
+    lib: "Library" | None = None,
+    close_library: bool = True,
+) -> dict[str, Any]:
+    """Analyze BPM and Key attributes for library items.
+
+    Parameters
+    ----------
+    item_ids : list[int]
+        Beets item IDs to analyze.
+    analyze_bpm : bool
+        Whether to run BPM analysis via aubio.
+    analyze_key : bool
+        Whether to run key detection via keyfinder-cli.
+    lib : Library | None
+        Optional pre-opened beets library instance. When provided, the caller
+        is responsible for managing its lifecycle.
+    close_library : bool
+        Whether to close the provided library at the end of the run. This value
+        is ignored unless ``lib`` is ``None`` (i.e., the function opened the
+        library itself) or the caller explicitly wants the helper to close a
+        supplied library instance.
+    """
+    log.info(f"Starting attribute analysis for {len(item_ids)} items")
+
+    managed_library = lib is None
+    if managed_library:
+        lib = _open_library(get_config())
+
+    assert lib is not None  # for type-checkers
+    results: dict[str, Any] = {
+        "analyzed": [],
+        "errors": [],
+        "skipped": [],
+    }
+
+    try:
+        for item_id in item_ids:
+            item = lib.get_item(item_id)
+            if item is None:
+                log.warning(f"Item {item_id} not found in library")
+                results["errors"].append(
+                    {
+                        "item_id": item_id,
+                        "error": "Item not found in library",
+                    }
+                )
+                continue
+
+            item_path = (
+                item.path.decode("utf-8", errors="ignore")
+                if isinstance(item.path, (bytes, bytearray))
+                else str(item.path)
+            )
+            log.debug(f"Analyzing item {item_id}: {item_path}")
+
+            item_result = {
+                "item_id": item_id,
+                "path": item_path,
+                "bpm": None,
+                "initial_key": None,
+            }
+
+            try:
+                if analyze_bpm:
+                    bpm = _analyze_bpm(item_path)
+                    if bpm is not None:
+                        item.bpm = int(round(bpm))
+                        item_result["bpm"] = item.bpm
+                        log.debug(f"Item {item_id}: BPM = {item.bpm}")
+
+                if analyze_key:
+                    key = _analyze_key(item_path)
+                    if key is not None:
+                        item.initial_key = key
+                        item_result["initial_key"] = key
+                        log.debug(f"Item {item_id}: Key = {key}")
+
+                item.store()
+                item.try_write()
+
+                results["analyzed"].append(item_result)
+                log.info(f"Successfully analyzed item {item_id}")
+
+            except Exception as exc:
+                log.error(f"Error analyzing item {item_id}: {exc}", exc_info=True)
+                results["errors"].append(
+                    {
+                        "item_id": item_id,
+                        "path": item_path,
+                        "error": str(exc),
+                    }
+                )
+
+        log.info(
+            f"Analysis complete: {len(results['analyzed'])} analyzed, "
+            f"{len(results['errors'])} errors, {len(results['skipped'])} skipped"
+        )
+        return results
+    finally:
+        if managed_library and close_library:
+            with suppress(Exception):
+                internal_close = getattr(lib, "_close", None)
+                if callable(internal_close):
+                    internal_close()
+            with suppress(Exception):
+                close_method = getattr(lib, "close", None)
+                if callable(close_method):
+                    close_method()
+            with suppress(Exception):
+                conn = getattr(lib, "conn", None)
+                if conn is not None:
+                    conn.close()
+            with suppress(Exception):
+                raw_conn = getattr(lib, "_connection", None)
+                if raw_conn is not None:
+                    raw_conn.close()
+                    setattr(lib, "_connection", None)
+            with suppress(Exception):
+                del lib
+                gc.collect()
+
+
+def _analyze_bpm(file_path: str) -> float | None:
+    """Analyze BPM of an audio file using aubio.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the audio file.
+
+    Returns
+    -------
+    float | None
+        The detected BPM, or None if analysis failed.
+    """
+    try:
+        import aubio
+    except ImportError:
+        log.warning("aubio library not available, skipping BPM analysis")
+        return None
+
+    try:
+        win_s = 1024  # FFT window size
+        hop_s = 512  # hop size
+        samplerate = 0  # Use file's native sample rate
+
+        source = aubio.source(file_path, samplerate, hop_s)
+        samplerate = source.samplerate
+        tempo = aubio.tempo("default", win_s, hop_s, samplerate)
+
+        total_frames = 0
+        beats = []
+
+        while True:
+            samples, read = source()
+            is_beat = tempo(samples)
+            if is_beat:
+                beats.append(tempo.get_last_s())
+            total_frames += read
+            if read < hop_s:
+                break
+
+        # Calculate BPM from detected beats
+        if len(beats) >= 2:
+            # Calculate intervals between beats
+            intervals = [beats[i + 1] - beats[i] for i in range(len(beats) - 1)]
+            if intervals:
+                avg_interval = sum(intervals) / len(intervals)
+                if avg_interval > 0:
+                    bpm = 60.0 / avg_interval
+                    # Sanity check: BPM should be in reasonable range
+                    if 40 <= bpm <= 250:
+                        return bpm
+                    elif 20 <= bpm < 40:
+                        return bpm * 2  # Double if too slow
+                    elif 250 < bpm <= 500:
+                        return bpm / 2  # Halve if too fast
+
+        # Fallback: use aubio's confidence-weighted BPM
+        bpm = tempo.get_bpm()
+        if 40 <= bpm <= 250:
+            return bpm
+
+        return None
+
+    except Exception as e:
+        log.warning(f"BPM analysis failed for {file_path}: {e}")
+        return None
+
+
+def _analyze_key(file_path: str) -> str | None:
+    """Analyze musical key of an audio file using keyfinder-cli.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the audio file.
+
+    Returns
+    -------
+    str | None
+        The detected key in standard notation (e.g., "Cm", "G"),
+        or None if analysis failed.
+    """
+    # Check if keyfinder-cli is available
+    keyfinder_bin = shutil.which("keyfinder-cli")
+    if keyfinder_bin is None:
+        log.warning("keyfinder-cli not found in PATH, skipping key analysis")
+        return None
+
+    try:
+        result = subprocess.run(
+            [keyfinder_bin, file_path],
+            capture_output=True,
+            text=True,
+            timeout=60,  # 60 second timeout
+        )
+
+        if result.returncode != 0:
+            log.warning(f"keyfinder-cli failed for {file_path}: {result.stderr}")
+            return None
+
+        # Parse the output - keyfinder-cli outputs the key on stdout
+        key_output = result.stdout.strip()
+
+        # keyfinder-cli outputs in format: "filename\tkey"
+        # or just "key" depending on version
+        if "\t" in key_output:
+            key = key_output.split("\t")[-1].strip()
+        else:
+            key = key_output.strip()
+
+        # Validate the key is in a recognized format
+        valid_keys = [
+            "C", "Cm", "C#", "C#m", "Db", "Dbm",
+            "D", "Dm", "D#", "D#m", "Eb", "Ebm",
+            "E", "Em",
+            "F", "Fm", "F#", "F#m", "Gb", "Gbm",
+            "G", "Gm", "G#", "G#m", "Ab", "Abm",
+            "A", "Am", "A#", "A#m", "Bb", "Bbm",
+            "B", "Bm",
+        ]
+
+        if key in valid_keys:
+            return key
+
+        # Try to normalize the key format
+        key_normalized = key.replace(" minor", "m").replace(" major", "")
+        if key_normalized in valid_keys:
+            return key_normalized
+
+        log.warning(f"Unrecognized key format '{key}' for {file_path}")
+        return key  # Return as-is even if not in standard format
+
+    except subprocess.TimeoutExpired:
+        log.warning(f"Key analysis timed out for {file_path}")
+        return None
+    except Exception as e:
+        log.warning(f"Key analysis failed for {file_path}: {e}")
+        return None
